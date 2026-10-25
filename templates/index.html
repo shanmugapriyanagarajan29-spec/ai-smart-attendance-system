@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Based Smart Attendance System</title>
+<!-- face-api.js (face detection + recognition running inside the browser) -->
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.js"></script>
+<style>
+:root{--bg:#f3f5fb;--card:#fff;--text:#1d2433;--muted:#667085;--primary:#3b5bdb;--green:#12a150;--red:#d92d20;--border:#e1e5ee}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+header{background:linear-gradient(90deg,#3b5bdb,#7048e8);color:#fff;padding:14px 24px;display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center}
+header h1{margin:0;font-size:1.25rem}
+nav{display:flex;flex-wrap:wrap;gap:6px}
+nav button{background:rgba(255,255,255,.15);color:#fff;border:0;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:.95rem}
+nav button.active,nav button:hover{background:#fff;color:var(--primary)}
+main{width:100%;max-width:1000px;margin:24px auto;padding:0 16px;flex:1}
+.card{background:var(--card);border-radius:14px;padding:24px;margin-bottom:20px;box-shadow:0 4px 16px rgba(20,30,70,.07)}
+h2,h3{margin-top:0}.muted{color:var(--muted)}
+.notice{background:#eef2ff;border-left:4px solid var(--primary);padding:12px 14px;border-radius:8px;margin:14px 0;font-size:.95rem}
+#status{padding:10px 14px;border-radius:8px;margin-bottom:16px;font-weight:600;background:#fff7e0;color:#8a5b00}
+#status.ready{background:#e6f7ee;color:var(--green)}#status.fail{background:#fdecea;color:var(--red)}
+label{display:block;font-weight:600;font-size:.9rem;margin-bottom:12px}
+input{width:100%;padding:10px 12px;margin-top:5px;border:1px solid var(--border);border-radius:8px;font-size:1rem}
+.check{display:flex;gap:10px;align-items:flex-start;font-weight:500;margin:14px 0}
+.check input{width:auto;margin-top:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0 16px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin:12px 0}
+.row label{margin:0}
+.btn{background:var(--primary);color:#fff;border:0;padding:10px 18px;border-radius:8px;font-size:1rem;cursor:pointer}
+.btn.green{background:var(--green)}.btn.red{background:var(--red)}.btn.sm{padding:6px 12px;font-size:.85rem}
+.btn.ghost{background:#fff;color:var(--primary);border:1px solid var(--primary)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.cam{position:relative;background:#101828;border-radius:12px;overflow:hidden;max-width:520px;aspect-ratio:4/3;margin:16px 0}
+.cam video,.cam canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:fill}
+.thumbs{display:flex;flex-wrap:wrap;gap:8px;min-height:10px}
+.thumbs img{width:80px;height:60px;object-fit:cover;border-radius:8px;border:2px solid var(--border)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:#f8f9fc;border-radius:10px;padding:14px}.stat b{display:block;font-size:1.6rem;color:var(--primary)}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px;border-bottom:1px solid var(--border);white-space:nowrap}
+th{background:#f8f9fc;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.bar{background:#e8ebf5;border-radius:6px;height:10px;width:120px;display:inline-block;vertical-align:middle;margin-right:8px}
+.bar i{display:block;height:100%;border-radius:6px;background:var(--green)}
+section.page{display:none}section.page.active{display:block}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(100px);padding:12px 20px;border-radius:10px;color:#fff;font-weight:600;opacity:0;transition:.3s;max-width:90%;z-index:10}
+#toast.show{transform:translateX(-50%);opacity:1}#toast.ok{background:var(--green)}#toast.err{background:var(--red)}
+footer{text-align:center;color:var(--muted);padding:16px;font-size:.9rem}
+@media(max-width:600px){.card{padding:16px}header{padding:12px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎓 AI Based Smart Attendance System</h1>
+  <nav id="nav">
+    <button data-tab="attendance" class="active">Mark Attendance</button>
+    <button data-tab="register">Register Student</button>
+    <button data-tab="records">Records &amp; Reports</button>
+    <button data-tab="privacy">Students &amp; Privacy</button>
+  </nav>
+</header>
+
+<main>
+  <div id="status">Loading face recognition models… (internet needed the first time)</div>
+
+  <!-- ===== MARK ATTENDANCE ===== -->
+  <section class="page active" id="attendance">
+    <div class="card">
+      <h2>Mark Attendance with Face Recognition</h2>
+      <div class="notice"><b>Consent &amp; privacy:</b> Face recognition is used only for attendance. Your camera video is analysed
+        inside this browser and is never uploaded or saved. Only registered students who gave consent can be recognised.
+        The browser will ask for permission to use your camera.</div>
+      <label class="check"><input type="checkbox" id="attConsent"> I understand and consent to face recognition for attendance.</label>
+      <div class="cam"><video id="attVideo" autoplay playsinline muted></video><canvas id="overlay"></canvas></div>
+      <div class="row">
+        <button class="btn" id="attStart">Start Camera</button>
+        <button class="btn green" id="scanBtn" disabled>Start Scanning</button>
+        <button class="btn ghost" id="attStop" disabled>Stop Camera</button>
+      </div>
+      <p class="muted" id="attInfo">Start the camera, then press “Start Scanning”. Each student is marked once per day.</p>
+    </div>
+    <div class="card">
+      <h3>Today's Attendance</h3>
+      <div class="scroll"><table><thead><tr><th>Student ID</th><th>Name</th><th>Department</th><th>Time</th></tr></thead><tbody id="todayBody"></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- ===== REGISTER ===== -->
+  <section class="page" id="register">
+    <div class="card">
+      <h2>Student Registration</h2>
+      <div class="notice"><b>Consent required:</b> Photos are converted into a numeric face signature (128 numbers) stored only in this browser.
+        The photos themselves are <b>not saved</b>. A student can be deleted at any time from “Students &amp; Privacy”.</div>
+      <form id="regForm">
+        <div class="grid">
+          <label>Student ID <input id="sid" required maxlength="20" placeholder="e.g. CS2025-01"></label>
+          <label>Full Name <input id="sname" required maxlength="80"></label>
+          <label>Department <input id="sdept" required maxlength="80" placeholder="e.g. Computer Science"></label>
+        </div>
+        <div class="cam"><video id="regVideo" autoplay playsinline muted></video></div>
+        <div class="row">
+          <button type="button" class="btn" id="regStart">Start Camera</button>
+          <button type="button" class="btn green" id="capBtn" disabled>Capture Photo (<span id="capCount">0</span>/5)</button>
+          <button type="button" class="btn ghost" id="clearBtn">Clear Photos</button>
+        </div>
+        <p class="muted">Capture 3–5 photos with slightly different head angles in good lighting. Only one person should be in the frame.</p>
+        <div class="thumbs" id="thumbs"></div>
+        <label class="check"><input type="checkbox" id="regConsent"> The student has read the notice above and consents to face recognition and to storing these details.</label>
+        <button class="btn" type="submit">Save Student</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===== RECORDS & REPORTS ===== -->
+  <section class="page" id="records">
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><b id="stStudents">0</b>Registered students</div>
+        <div class="stat"><b id="stToday">0</b>Present today</div>
+        <div class="stat"><b id="stRecords">0</b>Records in filter</div>
+      </div>
+      <h2>Attendance Records</h2>
+      <div class="row">
+        <label>From <input type="date" id="fStart"></label>
+        <label>To <input type="date" id="fEnd"></label>
+        <label>Search <input id="fSearch" placeholder="Name or ID"></label>
+        <button class="btn" id="fApply">Apply</button>
+        <button class="btn ghost" id="fCsv">Download CSV</button>
+      </div>
+      <div class="scroll"><table><thead><tr><th>Student ID</th><th>Name</th><th>Department</th><th>Date</th><th>Time</th></tr></thead><tbody id="recBody"></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>Attendance Report</h2>
+      <p class="muted" id="repInfo"></p>
+      <div class="scroll"><table><thead><tr><th>Student ID</th><th>Name</th><th>Department</th><th>Days Present</th><th>Attendance %</th></tr></thead><tbody id="repBody"></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- ===== STUDENTS & PRIVACY ===== -->
+  <section class="page" id="privacy">
+    <div class="card">
+      <h2>Registered Students</h2>
+      <div class="scroll"><table><thead><tr><th>Student ID</th><th>Name</th><th>Department</th><th>Consent Given</th><th></th></tr></thead><tbody id="stuBody"></tbody></table></div>
+    </div>
+    <div class="card">
+      <h3>Your data &amp; privacy</h3>
+      <ul>
+        <li>All data (student details, face signatures, attendance) is kept only in this browser's local storage on this computer.</li>
+        <li>Photos and camera video are never uploaded or saved; only a 128-number face signature is stored.</li>
+        <li>Deleting a student removes their face signature and attendance records.</li>
+        <li>Clearing the browser's site data also erases everything.</li>
+      </ul>
+      <button class="btn red" id="wipeBtn">Delete ALL data</button>
+    </div>
+  </section>
+</main>
+<footer>AI Based Smart Attendance System · College Project</footer>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const MODEL_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model/";
+const MATCH_DISTANCE = 0.5;               // lower = stricter face matching
+const KEY_STU = "sas_students_v1", KEY_ATT = "sas_attendance_v1";
+const $ = s => document.querySelector(s);
+
+/* ---------- storage ---------- */
+function load(k) { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } }
+function save(k, v) {
+  try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+  catch (e) { toast("Could not save data (browser storage blocked or full).", false); return false; }
+}
+let students = load(KEY_STU), attendance = load(KEY_ATT);
+
+/* ---------- helpers ---------- */
+function toast(text, ok = true) {
+  const t = $("#toast"); t.textContent = text; t.className = "show " + (ok ? "ok" : "err");
+  clearTimeout(toast.id); toast.id = setTimeout(() => t.className = "", 3500);
+}
+function today() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function nowTime() { return new Date().toTimeString().slice(0, 8); }
+function addRow(body, cells) {                       // textContent => safe from HTML injection
+  const tr = body.insertRow();
+  cells.forEach(c => { const td = tr.insertCell(); c instanceof Node ? td.appendChild(c) : td.textContent = c; });
+}
+function emptyRow(body, cols) { const tr = body.insertRow(), td = tr.insertCell(); td.colSpan = cols; td.className = "muted"; td.textContent = "No data yet."; }
+
+/* ---------- face-api models ---------- */
+let modelsReady = false;
+const detOpts = () => new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
+async function loadModels() {
+  const s = $("#status");
+  if (typeof faceapi === "undefined") { s.className = "fail"; s.textContent = "Could not load face-api.js. Check your internet connection and reload."; return; }
+  try {
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+    ]);
+    modelsReady = true; s.className = "ready"; s.textContent = "✔ Face recognition is ready.";
+  } catch (e) { s.className = "fail"; s.textContent = "Failed to load face models. Check your internet connection and reload."; }
+  updateButtons();
+}
+
+/* ---------- camera ---------- */
+let stream = null, activeVideo = null, scanning = false;
+async function startCam(video) {
+  stopCam();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast("Camera not available. Open this page via http://localhost or https://.", false); return false;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
+    video.srcObject = stream; await video.play(); activeVideo = video; updateButtons(); return true;
+  } catch (e) {
+    toast("Camera permission was denied or no camera was found. Allow camera access in the address bar and retry.", false);
+    return false;
+  }
+}
+function stopCam() {
+  scanning = false;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null;
+  if (activeVideo) activeVideo.srcObject = null;
+  activeVideo = null; clearOverlay(); updateButtons();
+}
+function clearOverlay() { const c = $("#overlay"); c.getContext("2d").clearRect(0, 0, c.width, c.height); }
+function updateButtons() {
+  const on = !!stream;
+  $("#scanBtn").disabled = !(on && modelsReady && activeVideo === $("#attVideo"));
+  $("#scanBtn").textContent = scanning ? "Pause Scanning" : "Start Scanning";
+  $("#attStop").disabled = !on;
+  $("#capBtn").disabled = !(on && modelsReady && activeVideo === $("#regVideo") && photos.length < 5);
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll("#nav button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+function showTab(name) {
+  stopCam();
+  document.querySelectorAll("#nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll("section.page").forEach(s => s.classList.toggle("active", s.id === name));
+  if (name === "attendance") renderToday();
+  if (name === "records") renderRecords();
+  if (name === "privacy") renderStudents();
+}
+
+/* ---------- registration ---------- */
+const photos = [];   // { thumb, descriptor }
+function renderThumbs() {
+  $("#capCount").textContent = photos.length;
+  const t = $("#thumbs"); t.textContent = "";
+  photos.forEach(p => { const i = new Image(); i.src = p.thumb; t.appendChild(i); });
+  updateButtons();
+}
+$("#regStart").onclick = () => startCam($("#regVideo"));
+$("#clearBtn").onclick = () => { photos.length = 0; renderThumbs(); };
+$("#capBtn").onclick = async () => {
+  const v = $("#regVideo"); $("#capBtn").disabled = true;
+  try {
+    const found = await faceapi.detectAllFaces(v, detOpts()).withFaceLandmarks().withFaceDescriptors();
+    if (found.length === 0) toast("No face detected. Face the camera in good light.", false);
+    else if (found.length > 1) toast("More than one face found. Only the student should be in the frame.", false);
+    else {
+      const c = document.createElement("canvas"); c.width = 80; c.height = 60;
+      c.getContext("2d").drawImage(v, 0, 0, 80, 60);
+      photos.push({ thumb: c.toDataURL("image/jpeg", 0.7), descriptor: Array.from(found[0].descriptor) });
+      toast("Photo " + photos.length + " captured.");
+    }
+  } catch (e) { toast("Face detection failed. Try again.", false); }
+  renderThumbs();
+};
+$("#regForm").onsubmit = e => {
+  e.preventDefault();
+  const id = $("#sid").value.trim(), name = $("#sname").value.trim(), dept = $("#sdept").value.trim();
+  if (!/^[A-Za-z0-9_-]{2,20}$/.test(id)) return toast("Student ID: 2–20 letters, digits, - or _.", false);
+  if (name.length < 2 || dept.length < 2) return toast("Enter a valid name and department.", false);
+  if (students.some(s => s.id.toLowerCase() === id.toLowerCase())) return toast("This Student ID is already registered.", false);
+  if (photos.length < 3) return toast("Capture at least 3 photos.", false);
+  if (!$("#regConsent").checked) return toast("Student consent is required.", false);
+  students.push({ id, name, dept, consentAt: new Date().toISOString(), descriptors: photos.map(p => p.descriptor) });
+  if (!save(KEY_STU, students)) { students.pop(); return; }
+  stopCam(); photos.length = 0; renderThumbs(); $("#regForm").reset();
+  toast(name + " registered successfully.");
+};
+
+/* ---------- recognition ---------- */
+function bestMatch(descriptor) {
+  let best = null, bestDist = Infinity;
+  for (const s of students)
+    for (const d of s.descriptors) {
+      const dist = faceapi.euclideanDistance(descriptor, d);
+      if (dist < bestDist) { bestDist = dist; best = s; }
+    }
+  return bestDist <= MATCH_DISTANCE ? { student: best, dist: bestDist } : null;
+}
+function markPresent(s) {
+  const d = today();
+  if (attendance.some(r => r.id === s.id && r.date === d)) return false;
+  attendance.push({ id: s.id, name: s.name, dept: s.dept, date: d, time: nowTime() });
+  save(KEY_ATT, attendance); renderToday();
+  toast("✔ " + s.name + " marked present at " + nowTime());
+  return true;
+}
+$("#attStart").onclick = async () => {
+  if (!$("#attConsent").checked) return toast("Please tick the consent box first.", false);
+  if (await startCam($("#attVideo"))) $("#attInfo").textContent = "Camera ready. Press “Start Scanning”.";
+};
+$("#attStop").onclick = stopCam;
+$("#scanBtn").onclick = () => {
+  if (!$("#attConsent").checked) return toast("Consent is required.", false);
+  if (!students.length) return toast("No students are registered yet.", false);
+  scanning = !scanning; updateButtons();
+  if (scanning) { $("#attInfo").textContent = "Scanning… look at the camera."; scanLoop(); }
+  else { $("#attInfo").textContent = "Scanning paused."; clearOverlay(); }
+};
+async function scanLoop() {
+  if (!scanning || !stream) return;
+  const v = $("#attVideo"), c = $("#overlay");
+  try {
+    const found = await faceapi.detectAllFaces(v, detOpts()).withFaceLandmarks().withFaceDescriptors();
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    const ctx = c.getContext("2d"); ctx.clearRect(0, 0, c.width, c.height);
+    ctx.lineWidth = 3; ctx.font = "bold 20px Segoe UI, sans-serif";
+    for (const f of found) {
+      const m = bestMatch(f.descriptor), b = f.detection.box;
+      ctx.strokeStyle = ctx.fillStyle = m ? "#12a150" : "#d92d20";
+      ctx.strokeRect(b.x, b.y, b.width, b.height);
+      ctx.fillText(m ? m.student.name : "Unknown", b.x, Math.max(20, b.y - 8));
+      if (m) markPresent(m.student);
+    }
+  } catch (e) { console.error(e); }
+  if (scanning) setTimeout(scanLoop, 400);
+}
+
+/* ---------- records & reports ---------- */
+function renderToday() {
+  const body = $("#todayBody"); body.textContent = "";
+  const rows = attendance.filter(r => r.date === today()).sort((a, b) => b.time.localeCompare(a.time));
+  if (!rows.length) return emptyRow(body, 4);
+  rows.forEach(r => addRow(body, [r.id, r.name, r.dept, r.time]));
+}
+function dateFiltered() {
+  const s = $("#fStart").value, e = $("#fEnd").value;
+  return attendance.filter(r => (!s || r.date >= s) && (!e || r.date <= e));
+}
+function filteredRecords() {
+  const t = $("#fSearch").value.trim().toLowerCase();
+  return dateFiltered().filter(r => !t || r.name.toLowerCase().includes(t) || r.id.toLowerCase().includes(t))
+    .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+}
+function renderRecords() {
+  const rows = filteredRecords(), range = dateFiltered();
+  $("#stStudents").textContent = students.length;
+  $("#stToday").textContent = attendance.filter(r => r.date === today()).length;
+  $("#stRecords").textContent = rows.length;
+  const rb = $("#recBody"); rb.textContent = "";
+  rows.length ? rows.forEach(r => addRow(rb, [r.id, r.name, r.dept, r.date, r.time])) : emptyRow(rb, 5);
+
+  const days = new Set(range.map(r => r.date)).size;
+  $("#repInfo").textContent = "Attendance days in selected range: " + days;
+  const pb = $("#repBody"); pb.textContent = "";
+  if (!students.length) return emptyRow(pb, 5);
+  [...students].sort((a, b) => a.name.localeCompare(b.name)).forEach(s => {
+    const present = range.filter(r => r.id === s.id).length;
+    const pct = days ? Math.round(1000 * present / days) / 10 : 0;
+    const wrap = document.createElement("span"), bar = document.createElement("span"), fill = document.createElement("i");
+    bar.className = "bar"; fill.style.width = pct + "%"; fill.style.background = pct < 75 ? "#d92d20" : "#12a150";
+    bar.appendChild(fill); wrap.appendChild(bar); wrap.appendChild(document.createTextNode(pct + "%"));
+    addRow(pb, [s.id, s.name, s.dept, present, wrap]);
+  });
+}
+$("#fApply").onclick = renderRecords;
+$("#fSearch").addEventListener("keydown", e => { if (e.key === "Enter") renderRecords(); });
+$("#fCsv").onclick = () => {
+  const cell = v => { v = String(v); if (/^[=+\-@]/.test(v)) v = "'" + v; return '"' + v.replace(/"/g, '""') + '"'; };
+  const lines = [["Student ID", "Name", "Department", "Date", "Time"].map(cell).join(",")]
+    .concat(filteredRecords().map(r => [r.id, r.name, r.dept, r.date, r.time].map(cell).join(",")));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\r\n")], { type: "text/csv" }));
+  a.download = "attendance_" + today() + ".csv"; a.click(); URL.revokeObjectURL(a.href);
+};
+
+/* ---------- students & privacy ---------- */
+function renderStudents() {
+  const body = $("#stuBody"); body.textContent = "";
+  if (!students.length) return emptyRow(body, 5);
+  students.forEach(s => {
+    const b = document.createElement("button"); b.className = "btn red sm"; b.textContent = "Delete";
+    b.onclick = () => {
+      if (!confirm("Delete " + s.name + ", their face data and all their attendance records?")) return;
+      students = students.filter(x => x.id !== s.id); attendance = attendance.filter(r => r.id !== s.id);
+      save(KEY_STU, students); save(KEY_ATT, attendance); renderStudents(); toast("Student data deleted.");
+    };
+    addRow(body, [s.id, s.name, s.dept, new Date(s.consentAt).toLocaleString(), b]);
+  });
+}
+$("#wipeBtn").onclick = () => {
+  if (!confirm("Delete ALL students, face data and attendance records? This cannot be undone.")) return;
+  students = []; attendance = [];
+  try { localStorage.removeItem(KEY_STU); localStorage.removeItem(KEY_ATT); } catch (e) {}
+  renderStudents(); renderToday(); toast("All data deleted.");
+};
+
+/* ---------- start ---------- */
+renderToday(); renderThumbs(); loadModels();
+</script>
+</body>
+</html>
